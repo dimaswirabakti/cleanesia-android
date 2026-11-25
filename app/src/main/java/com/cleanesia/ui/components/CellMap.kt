@@ -25,7 +25,11 @@ import com.cleanesia.data.local.CellEntity
 import com.cleanesia.ui.theme.SeverityColors
 import com.cleanesia.ui.theme.Unmonitored
 import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.events.MapListener
+import org.osmdroid.events.ScrollEvent
+import org.osmdroid.events.ZoomEvent
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
@@ -35,27 +39,51 @@ import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polygon
 
-/** Titik cadangan bila lokasi pengguna tidak tersedia (sama dengan versi Flutter). */
-private val FALLBACK_CENTER = GeoPoint(-8.025, 110.332)
-private const val FALLBACK_ZOOM = 5.0
+/**
+ * Area cadangan bila lokasi pengguna tidak tersedia: pesisir selatan Bantul,
+ * dari Pantai Parangtritis (timur) sampai Pantai Baru (barat), termasuk Parangkusumo,
+ * Depok, dan Samas di antaranya. Koordinat pantai dari OpenStreetMap (lewat Photon):
+ * Parangtritis -8.0273, 110.3370 dan Baru -7.9899, 110.2229.
+ */
+private val FALLBACK_AREA = BoundingBox(
+    -7.9899, // utara: Pantai Baru
+    110.3370, // timur: Pantai Parangtritis
+    -8.0273, // selatan: Pantai Parangtritis
+    110.2229, // barat: Pantai Baru
+)
+private val FALLBACK_AREA_PADDING = 32.dp
 private const val USER_ZOOM = 16.0
 private const val DAY_MS = 24L * 60 * 60 * 1000
+
+/** Posisi kamera peta yang disimpan antar-tab. */
+data class MapCamera(val lat: Double, val lng: Double, val zoom: Double)
 
 /**
  * Peta OpenStreetMap dengan kotak sel berwarna sesuai keparahan laporan terbaru.
  * Ketukan di mana pun diteruskan ke [onTap] sebagai koordinat.
+ *
+ * Kamera awal: [initialCamera] bila ada (kembali ke tab Peta), selain itu lokasi pengguna
+ * bila tersedia, selain itu [FALLBACK_AREA]. Posisi kamera dilaporkan lewat [onCameraSave]
+ * saat layar dijeda atau peta dilepas dari komposisi.
  */
 @Composable
 fun CellMap(
     cells: List<CellEntity>,
     userLocation: GeoPoint?,
+    initialCamera: MapCamera?,
+    onCameraSave: (MapCamera) -> Unit,
     onTap: (GeoPoint) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val currentOnTap by rememberUpdatedState(onTap)
-    val outlineWidthPx = with(LocalDensity.current) { 0.5.dp.toPx() }
+    val currentOnCameraSave by rememberUpdatedState(onCameraSave)
+    val density = LocalDensity.current
+    val outlineWidthPx = with(density) { 0.5.dp.toPx() }
+    val fallbackPaddingPx = with(density) { FALLBACK_AREA_PADDING.roundToPx() }
 
+    // Kamera hanya otomatis pindah ke lokasi pengguna kalau belum ada posisi tersimpan.
+    val autoCenter = remember { AutoCenter(enabled = initialCamera == null) }
     val cellLayer = remember { FolderOverlay() }
     val mapView = remember {
         MapView(context).apply {
@@ -63,8 +91,15 @@ fun CellMap(
             setMultiTouchControls(true)
             isTilesScaledToDpi = true
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
-            controller.setZoom(FALLBACK_ZOOM)
-            controller.setCenter(FALLBACK_CENTER)
+            if (initialCamera != null) {
+                controller.setZoom(initialCamera.zoom)
+                controller.setCenter(GeoPoint(initialCamera.lat, initialCamera.lng))
+            } else {
+                // zoomToBoundingBox butuh ukuran view, jadi ditunda sampai layout pertama.
+                addOnFirstLayoutListener { _, _, _, _, _ ->
+                    if (autoCenter.enabled) zoomToBoundingBox(FALLBACK_AREA, false, fallbackPaddingPx)
+                }
+            }
             overlays.add(
                 MapEventsOverlay(object : MapEventsReceiver {
                     override fun singleTapConfirmedHelper(p: GeoPoint): Boolean {
@@ -92,22 +127,47 @@ fun CellMap(
     // MapView perlu tahu siklus hidup layar untuk menghentikan unduhan tile saat di latar.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
+        // Posisi dicatat saat peta bergeser/zoom, selagi view masih terpasang dan punya ukuran.
+        // Membaca mapCenter saat view sedang dilepas tidak bisa diandalkan.
+        var lastCamera: MapCamera? = initialCamera
+        val cameraListener = object : MapListener {
+            override fun onScroll(event: ScrollEvent?): Boolean = record()
+            override fun onZoom(event: ZoomEvent?): Boolean = record()
+            private fun record(): Boolean {
+                if (mapView.width > 0 && mapView.height > 0) {
+                    val center = mapView.mapCenter
+                    lastCamera = MapCamera(center.latitude, center.longitude, mapView.zoomLevelDouble)
+                }
+                return false
+            }
+        }
+        mapView.addMapListener(cameraListener)
+        fun saveCamera() {
+            lastCamera?.let(currentOnCameraSave)
+        }
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_PAUSE -> {
+                    // Disimpan juga saat jeda supaya ikut ke saved state bila proses dimatikan.
+                    saveCamera()
+                    mapView.onPause()
+                }
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            saveCamera()
+            mapView.removeMapListener(cameraListener)
             lifecycleOwner.lifecycle.removeObserver(observer)
             mapView.onDetach()
         }
     }
 
     LaunchedEffect(userLocation) {
-        if (userLocation != null) {
+        if (userLocation != null && autoCenter.enabled) {
+            autoCenter.enabled = false
             mapView.controller.setZoom(USER_ZOOM)
             mapView.controller.setCenter(userLocation)
         }
@@ -131,6 +191,9 @@ fun CellMap(
         },
     )
 }
+
+/** Penanda biasa (bukan state Compose) karena hanya dibaca oleh MapView, tidak memicu recompose. */
+private class AutoCenter(var enabled: Boolean)
 
 private fun cellPolygon(map: MapView, cell: CellEntity, now: Long, outlineWidthPx: Float): Polygon {
     val b = cellBounds(cell.cellId)

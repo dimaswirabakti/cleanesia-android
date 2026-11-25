@@ -65,6 +65,8 @@ fun PetaScreen(viewModel: PetaViewModel = viewModel(factory = PetaViewModel.Fact
         CellMap(
             cells = cells,
             userLocation = userLocation,
+            initialCamera = viewModel.camera,
+            onCameraSave = { viewModel.camera = it },
             onTap = { point ->
                 val cellId = computeCellId(point.latitude, point.longitude)
                 tapped = CellTap(cells.firstOrNull { it.cellId == cellId })
