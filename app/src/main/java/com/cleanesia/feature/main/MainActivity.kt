@@ -4,7 +4,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import com.cleanesia.ui.components.PlaceholderScreen
 import com.cleanesia.ui.theme.CleanesiaTheme
 
 class MainActivity : ComponentActivity() {
@@ -13,7 +12,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             CleanesiaTheme {
-                PlaceholderScreen(title = "Beranda")
+                MainScreen()
             }
         }
     }
