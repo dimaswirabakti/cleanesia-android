@@ -1,10 +1,12 @@
 package com.cleanesia.feature.report.photo
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import com.cleanesia.ui.components.PlaceholderScreen
+import com.cleanesia.feature.report.ReportExtras
+import com.cleanesia.feature.report.detail.ReportDetailActivity
 import com.cleanesia.ui.theme.CleanesiaTheme
 
 class ReportPhotoActivity : ComponentActivity() {
@@ -13,7 +15,15 @@ class ReportPhotoActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             CleanesiaTheme {
-                PlaceholderScreen(title = "Foto Laporan Sampah")
+                ReportPhotoScreen(
+                    onBack = { finish() },
+                    onPhotoTaken = { path ->
+                        startActivity(
+                            Intent(this, ReportDetailActivity::class.java)
+                                .putExtra(ReportExtras.PHOTO_PATH, path)
+                        )
+                    },
+                )
             }
         }
     }

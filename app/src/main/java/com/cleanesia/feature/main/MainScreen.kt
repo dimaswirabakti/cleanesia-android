@@ -1,5 +1,6 @@
 package com.cleanesia.feature.main
 
+import android.content.Intent
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -18,10 +19,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import com.cleanesia.R
 import com.cleanesia.feature.map.PetaScreen
+import com.cleanesia.feature.report.photo.ReportPhotoActivity
 import com.cleanesia.ui.components.PlaceholderScreen
 import com.cleanesia.ui.theme.Brand100
 import com.cleanesia.ui.theme.Ink900
@@ -38,6 +41,7 @@ private enum class Tab(val label: String, @param:DrawableRes val icon: Int) {
 @Composable
 fun MainScreen() {
     var selected by rememberSaveable { mutableStateOf(Tab.BERANDA) }
+    val context = LocalContext.current
 
     Scaffold(
         // Inset atas ditangani tiap tab (TopAppBar), jadi Scaffold luar hanya memberi ruang bottom bar.
@@ -49,8 +53,12 @@ fun MainScreen() {
                     NavigationBarItem(
                         selected = isSelected,
                         onClick = {
-                            // Tab Laporan membuka alur lapor (Activity terpisah), dikerjakan di fitur lapor.
-                            if (tab != Tab.LAPORAN) selected = tab
+                            // Tab Laporan membuka alur lapor di Activity terpisah; tab aktif tidak berubah.
+                            if (tab == Tab.LAPORAN) {
+                                context.startActivity(Intent(context, ReportPhotoActivity::class.java))
+                            } else {
+                                selected = tab
+                            }
                         },
                         icon = { Icon(painterResource(tab.icon), contentDescription = null) },
                         label = {
